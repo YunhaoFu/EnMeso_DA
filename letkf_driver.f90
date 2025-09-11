@@ -206,6 +206,7 @@ contains
 
       real, allocatable                ::    hdxb(:,:)
       real, allocatable                ::    dep(:)
+      integer, allocatable             ::    oid(:)
       real, allocatable                ::    rdiag(:)
       real, allocatable                ::    dist(:)
       real, allocatable                ::    rloc(:)
@@ -215,13 +216,29 @@ contains
       real                             ::    loc_tmp
       real                             ::    cutoff
 
+      real                             ::    cutoff_t ! for temperature
+      real                             ::    cutoff_q ! for humidity
+      real                             ::    cutoff_u ! for u
+      real                             ::    cutoff_v ! for v
+
       real, allocatable                ::    trans(:, :), bkg_mean(:), bkg(:,:), tmp(:,:)
 
       integer :: i, j, k, e, l
 
       call letkf_core_init(nens)
 
-      cutoff = radius / (sqrt(40.0/3.0))
+      !!!!!!
+      ! radius is for searching obs and resturning distance between grid point and the potential obs
+      ! cutoff = radius / (sqrt(40.0/3.0)), is the parameter for localization function
+      !!!!!!
+      ! cutoff = radius / (sqrt(40.0/3.0))
+
+      ! example: radius = 10 km * 1e3 = 1e4 m  cutoff  radius
+      ! different cutoff for different obs type
+      cutoff_t = radius / (sqrt(40.0/3.0))  ! 2738.6 m  1e4 m
+      cutoff_q = cutoff_t * (2.0/3.0)       ! 1825.7 m  1e4 m
+      cutoff_u = cutoff_t * 0.5             ! 1369.3 m  1e4 m
+      cutoff_v = cutoff_t * 0.5             ! 1369.3 m  1e4 m
 
       nobs_max = 0
       nobs = 0
@@ -237,6 +254,7 @@ contains
 
       allocate(hdxb(nens,nobs))
       allocate(dep(nobs))
+      allocate(oid(nobs))
       allocate(rdiag(nobs))
       allocate(dist(nobs))
       allocate(rloc(nobs))
@@ -252,6 +270,7 @@ contains
          do ins=1,nins
             if (.not. y(ins)%avail) cycle
             ny = 0
+            ! use radius in observation space to search
             call kd_search_radius(y(ins)%obs_tree, lon(i,j), lat(i,j), radius, idx, dis, ny, .FALSE.)
 
             do l = 1, ny
@@ -259,6 +278,7 @@ contains
                   nobs = nobs + 1
                   hdxb(:,nobs) = y(ins)%hx(idx(l),:)
                   dep(nobs)    = y(ins)%inno(idx(l))
+                  oid(nobs)    = y(ins)%oid(idx(l))
                   rdiag(nobs)  = y(ins)%err(idx(l))
                   dist(nobs)   = dis(l)
                else
@@ -271,6 +291,21 @@ contains
 
          nobs_loc = 0
          do l=1,nobs
+
+            selectcase (oid(l))
+            case (2) ! TEM
+                cutoff = cutoff_t
+            case (3) ! RHU
+                cutoff = cutoff_q
+            case (6) ! U
+                cutoff = cutoff_u
+            case (7) ! V
+                cutoff = cutoff_v
+            case default
+                print *, "Invalid oid = ", oid(l)
+                stop 30
+            endselect
+
             loc_tmp = letkf_loc_gc(dist(l), cutoff)
             if (loc_tmp <= 1.0e-6) cycle
             nobs_loc = nobs_loc + 1
@@ -310,6 +345,7 @@ contains
 
       deallocate(hdxb)
       deallocate(dep)
+      deallocate(oid)
       deallocate(rdiag)
       deallocate(dist)
       deallocate(rloc)
