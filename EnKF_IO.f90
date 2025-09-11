@@ -41,6 +41,7 @@ module EnKF_IO
     integer :: kp
 
 logical, dimension(:), allocatable :: assimilated
+logical, dimension(:), allocatable :: non_negative
 
     ! MPI variables
     integer :: ierr, fh, stats
@@ -156,12 +157,14 @@ contains
         total_lev = total_lev+3
 
         allocate(assimilated(total_lev))
+        allocate(non_negative(total_lev))
 
         if (OnMonitor) then
 
             nvar = grid%nvar
-            ! initialize assimilated
+            ! initialize assimilated and non_negative
             assimilated = .false.
+            non_negative= .false.
 
             do i = 1, nvar
 
@@ -259,11 +262,24 @@ contains
                 print *, "i: ", i, " varn: ", trim(grid%varn_list(i)), " ls = ", ls, " le = ", le
                 assimilated(ls:le) = .true.
 
+                if ( trim(grid%varn_list(i)) == "vapor"   .or. &
+                     trim(grid%varn_list(i)) == "cloud"   .or. &
+                     trim(grid%varn_list(i)) == "rain"    .or. &
+                     trim(grid%varn_list(i)) == "ice"     .or. &
+                     trim(grid%varn_list(i)) == "snow"    .or. &
+                     trim(grid%varn_list(i)) == "grapaul" .or. &
+                     trim(grid%varn_list(i)) == "smois"   .or. &
+                     trim(grid%varn_list(i)) == "q2"           &
+                                                                ) then 
+                    non_negative(ls:le) = .true.
+                endif
+
             enddo
 
         endif
 
         call MPI_BCAST (assimilated,total_lev,MPI_LOGICAL,0,local_communicator,ierr)
+        call MPI_BCAST (non_negative,total_lev,MPI_LOGICAL,0,local_communicator,ierr)
 
         grid%nz = count(assimilated)
 
@@ -498,6 +514,15 @@ contains
                 if ( .not. assimilated(k) ) cycle
                 l = l + 1
                 buf4d(:,:,k,ens) = buf4d_assimilated(:,:,l,ens)
+
+! +++ non_negative physical constrain, 0804/2025
+                if ( non_negative(k) ) then
+                    where ( buf4d(:,:,k,ens) < 0.0 )
+                        buf4d(:,:,k,ens) = 0.0
+                    endwhere
+                endif
+! +++
+
             end do
 
             call MPI_ALLTOALLV(buf4d(:,:,:,ens),send_count_2,send_displ_2,MPI_REAL,buf_recv,recv_count_2,recv_displ_2,MPI_REAL,nscomm,ierr )
@@ -571,6 +596,7 @@ contains
         deallocate(grid%lat)
 
         deallocate(assimilated)
+        deallocate(non_negative)
 
     end subroutine EnKF_IO_Write
     
