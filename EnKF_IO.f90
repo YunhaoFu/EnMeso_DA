@@ -139,6 +139,15 @@ contains
         real(kind=4), allocatable, dimension(:) :: rhead
         integer :: nens
 
+        integer :: nvar
+        integer :: nl1, nl2, nl3
+
+        integer :: ls, le
+
+        nl1 = kme-kms+1       ! atm 72
+        nl2 = num_soil_layers ! soil 4
+        nl3 = 1               ! surface 1
+
         nens = grid%nens
 
         disp=disp + kp*4_MPI_OFFSET_KIND
@@ -147,14 +156,114 @@ contains
         total_lev = total_lev+3
 
         allocate(assimilated(total_lev))
-        assimilated = .false.
 
-        assimilated(289:289+72-1)= .true.  ! u
-        assimilated(361:361+72-1)= .true.  ! v
-        assimilated(505:505+72-1) = .true. ! th
-        assimilated(577:577+72-1) = .true. ! qv
-        assimilated(1020:1021) = .true.    ! u10, v10
-        assimilated(1022:1023) = .true.    ! t2, q2
+        if (OnMonitor) then
+
+            nvar = grid%nvar
+            ! initialize assimilated
+            assimilated = .false.
+
+            do i = 1, nvar
+
+                selectcase (trim(grid%varn_list(i)))
+
+                case("thref")
+                    ls = 1                ! 1
+                    le = nl1 * 1          ! 72
+                case("piref")
+                    ls = 1 + nl1 * 1      ! 73
+                    le = nl1 * 2          ! 144
+                case("zz")
+                    ls = 1 + nl1 * 2      ! 145
+                    le = nl1 * 3          ! 216
+                case("pi")
+                    ls = 1 + nl1 * 3      ! 217
+                    le = nl1 * 4          ! 288
+                case("u")
+                    ls = 1 + nl1 * 4      ! 289
+                    le = nl1 * 5          ! 360
+                case("v")
+                    ls = 1 + nl1 * 5      ! 361
+                    le = nl1 * 6          ! 432
+                case("wzet")
+                    ls = 1 + nl1 * 6      ! 433
+                    le = nl1 * 7          ! 504
+                case("th")
+                    ls = 1 + nl1 * 7      ! 505
+                    le = nl1 * 8          ! 576
+                case("vapor")
+                    ls = 1 + nl1 * 8      ! 577
+                    le = nl1 * 9          ! 648
+                case("cloud")
+                    ls = 1 + nl1 * 9      ! 649
+                    le = nl1 * 10         ! 720
+                case("rain")
+                    ls = 1 + nl1 * 10     ! 721
+                    le = nl1 * 11         ! 792
+                case("ice")
+                    ls = 1 + nl1 * 11     ! 793
+                    le = nl1 * 12         ! 864
+                case("snow")
+                    ls = 1 + nl1 * 12     ! 865
+                    le = nl1 * 13         ! 936
+                case("grapaul")
+                    ls = 1 + nl1 * 13     ! 937
+                    le = nl1 * 14         ! 1008
+                case("tslb")
+                    ls = 1 + nl1 * 14                            ! 1009
+                    le = nl1 * 14 + nl2 * 1                      ! 1012
+                case("smois")
+                    ls = 1 + nl1 * 14 + nl2 * 1                  ! 1013
+                    le = nl1 * 14 + nl2 * 2                      ! 1016
+                case("tsk")
+                    ls = 1 + nl1 * 14 + nl2 * 2                  ! 1017
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 1            ! 1017
+                case("ps")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 1        ! 1018
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 2            ! 1018
+                case("psea")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 2        ! 1019
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 3            ! 1019
+                case("u10")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 3        ! 1020
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 4            ! 1020
+                case("v10")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 4        ! 1021
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 5            ! 1021
+                case("t2")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 5        ! 1022
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 6            ! 1022
+                case("q2")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 6        ! 1023
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 7            ! 1023
+                case("zs")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 7        ! 1024
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 8            ! 1024
+                case("vegfra")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 8        ! 1025
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 9            ! 1025
+                case("shdmin")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 9        ! 1026
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 9 + 1        ! 1026
+                case("shdmax")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 9 + 1    ! 1027
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 9 + 2        ! 1027
+                case("lai")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 9 + 2    ! 1028
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 9 + 3        ! 1028
+                case("albedo")
+                    ls = 1 + nl1 * 14 + nl2 * 2 + nl3 * 9 + 3    ! 1029
+                    le = nl1 * 14 + nl2 * 2 + nl3 * 9 + 4        ! 1029
+                endselect
+                    
+                print *, "i: ", i, " varn: ", trim(grid%varn_list(i)), " ls = ", ls, " le = ", le
+                assimilated(ls:le) = .true.
+
+            enddo
+
+        endif
+
+        call MPI_BCAST (assimilated,total_lev,MPI_LOGICAL,0,local_communicator,ierr)
 
         grid%nz = count(assimilated)
 

@@ -56,6 +56,8 @@ module EnKF_DM
                         sm11,   em11                                         
 
         integer     ::  nens
+        integer     ::  nvar
+        character(len=30), dimension(:), allocatable :: varn_list
         integer     ::  xs, xe, ys, ye, zs, ze
 
         contains
@@ -205,12 +207,16 @@ contains
         class(domain), intent(inout) :: self
         character(*) , intent(in)    :: nmlfn
         integer                      :: nens
+        integer                      :: nvar
+        character(len=30), dimension(:), allocatable :: varn_list
         integer                      :: xs
         integer                      :: xe
         integer                      :: ys
         integer                      :: ye
         integer                      :: zs
         integer                      :: ze
+
+        integer                      :: i
 
         logical                      :: exist
         integer                      :: status, file_unit
@@ -219,7 +225,8 @@ contains
 
         if (OnMonitor) then
 
-            namelist /MESO_FIXED/ nens, xs, xe, ys, ye, zs, ze
+            namelist /MESO_FIXED/ nens, nvar, xs, xe, ys, ye, zs, ze
+            namelist /MESO_ALLOC/ varn_list
 
             inquire (file=nmlfn, exist=exist)
 
@@ -235,6 +242,7 @@ contains
             if (status /= 0) write (stderr, '("Error: invalid Namelist format in MESO_FIXED")')
 
             self%nens = nens
+            self%nvar = nvar
             self%xs = xs
             self%xe = xe
             self%ys = ys
@@ -242,9 +250,23 @@ contains
             self%zs = zs
             self%ze = ze
 
+            allocate(self%varn_list(nvar))
+            allocate(varn_list(nvar))
+
+            read (nml=MESO_ALLOC, iostat=status, unit=file_unit)
+            if (status /= 0) write (stderr, '("Error: invalid Namelist format in MESO_ALLOC")')
+
+            do i = 1, nvar
+                self%varn_list(i) = trim(varn_list(i))
+                ! print *, i, trim(self%varn_list(i))
+            enddo
+            
+            deallocate(varn_list)
+
         endif
 
         call MPI_BCAST ( self%nens, 1, MPI_INTEGER, 0, local_communicator, ierr)
+        ! call MPI_BCAST ( self%nvar, 1, MPI_INTEGER, 0, local_communicator, ierr)
         call MPI_BCAST ( self%xs, 1, MPI_INTEGER, 0, local_communicator, ierr)
         call MPI_BCAST ( self%xe, 1, MPI_INTEGER, 0, local_communicator, ierr)
         call MPI_BCAST ( self%ys, 1, MPI_INTEGER, 0, local_communicator, ierr)
@@ -252,7 +274,7 @@ contains
         call MPI_BCAST ( self%zs, 1, MPI_INTEGER, 0, local_communicator, ierr)
         call MPI_BCAST ( self%ze, 1, MPI_INTEGER, 0, local_communicator, ierr)
 
-        print *, "GR: ", myprcid, " read_nml: xs, xe, ys, ye, zs, ze, nens = ", self%xs, self%xe, self%ys, self%ye, self%zs, self%ze, self%nens
+        ! print *, "GR: ", myprcid, " read_nml: xs, xe, ys, ye, zs, ze, nens = ", self%xs, self%xe, self%ys, self%ye, self%zs, self%ze, self%nens
 
     endsubroutine read_nml
 
@@ -444,6 +466,10 @@ contains
     end subroutine promap
 
     subroutine DM_Finalize()
+
+        if ( allocated(grid%varn_list) ) then
+            deallocate(grid%varn_list)
+        end if
 
         if( allocated(procmap) )then
             deallocate( procmap )

@@ -15,10 +15,15 @@
 
 &MESO_FIXED
   nens = 9,
+  nvar = 8
   xs = 1,
   xe = 502,
   ys = 1,
   ye = 502,
   zs = 1,
   ze = 70
+/
+
+&MESO_ALLOC
+  varn_list = "u", "v", "th", "vapor", "u10", "v10", "t2", "q2"
 /
