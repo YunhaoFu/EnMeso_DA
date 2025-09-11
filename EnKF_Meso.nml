@@ -1,0 +1,24 @@
+&STATE_INFO
+  nins      = 1,
+  batch     = 1000,
+  nens      = 30,
+  radius    = 250.0,
+  infl      = 1.0,
+  infl_rtpp = 0.8,
+  verbose   = .false.,
+  write_y   = .false.
+/
+
+&ALLOC_INFO
+  insn_list = "2024052918-omb",
+/
+
+&MESO_FIXED
+  nens = 9,
+  xs = 1,
+  xe = 502,
+  ys = 1,
+  ye = 502,
+  zs = 1,
+  ze = 70
+/
