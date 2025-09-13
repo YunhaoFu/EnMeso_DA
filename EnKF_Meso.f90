@@ -107,7 +107,7 @@ program EnKF_Meso
     if (OnMonitor) write(*, "('letkf took ', F10.3, ' seconds')") t0
 
     t0 = MPI_Wtime()
-    call EnKF_IO_Write()
+    call EnKF_IO_Write(infl_rtpp)
     t1 = MPI_Wtime() - t0
     call MPI_Reduce(t1, t0, 1, MPI_DOUBLE_PRECISION, MPI_MAX, root, local_communicator, ierr)
     if (OnMonitor) write(*, "('writing analysis took ', F10.3, ' seconds')") t0

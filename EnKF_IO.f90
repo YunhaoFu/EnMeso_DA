@@ -51,6 +51,9 @@ logical, dimension(:), allocatable :: non_negative
 
     ! pubclic variables
     real(kind=4),allocatable :: buf4d_assimilated(:,:,:,:)
+    real(kind=4),allocatable :: buf4d_assimilated_xb(:,:,:,:) ! saved x
+
+    logical,allocatable      :: non_negative_assimilated(:)
 
 contains
 
@@ -323,6 +326,9 @@ contains
         allocate(buf_recv((ite-its+1)*(jte-jts+1)*total_lev))
         allocate(buf4d(its:ite,jts:jte,1:total_lev,nens))
         allocate(buf4d_assimilated(its:ite,jts:jte,grid%nz,nens))
+        allocate(buf4d_assimilated_xb(its:ite,jts:jte,grid%nz,nens))
+
+        allocate(non_negative_assimilated(grid%nz))
 
         allocate(send_count_1(prcnumb_b))
         allocate(send_displ_1(prcnumb_b))
@@ -432,9 +438,21 @@ contains
                 buf4d_assimilated(:,:,l,ens) = buf4d(:,:,k,ens)
             end do
 
+            if ( ens == 1 ) then
+                l = 0
+                do k = 1, total_lev
+                    if ( .not. assimilated(k) ) cycle
+                    l = l + 1
+                    non_negative_assimilated(l)  = non_negative(k)
+                end do
+            endif
+
         end do
 
         call MPI_Barrier(local_communicator,ierr)
+
+        ! save xb
+        buf4d_assimilated_xb( its:ite , jts:jte , 1:grid%nz , 1:nens ) = buf4d_assimilated( its:ite , jts:jte , 1:grid%nz , 1:nens )
 
         deallocate(buf1d)
         deallocate(buf_recv)
@@ -451,9 +469,13 @@ contains
         if (myprcid_b == 0) deallocate(buf3d)
         deallocate(buf_send)
 
+        deallocate(non_negative)
+
     end subroutine EnKF_IO_Read
 
-    subroutine EnKF_IO_Write()
+    subroutine EnKF_IO_Write(inflation_rtpp)
+
+        real, intent(in) :: inflation_rtpp
 
         character(len=256) :: inputfn
         integer :: l, m, n, i, j, k, ens
@@ -507,6 +529,91 @@ contains
 
         call MPI_Barrier(local_communicator,ierr)
 
+! +++ post var for 3std constrain & non_negative physical constrain, 0809/2025
+
+        post_xa: block
+
+            ! structure of xa & xb: its:ite , jts:jte , 1:grid%nz , 1:nens
+            real(kind=4), allocatable, dimension(:,:,:) :: xb_avg, xb_std
+            real(kind=4), allocatable, dimension(:,:,:) :: xa_avg, xa_std ! xa_std is not used
+            real(kind=4)                                :: d
+
+            integer :: i_idx, j_idx, k_idx, e_idx 
+
+            ! allocate
+            allocate(xb_avg( its:ite , jts:jte , 1:grid%nz ))
+            allocate(xb_std( its:ite , jts:jte , 1:grid%nz ))
+            allocate(xa_avg( its:ite , jts:jte , 1:grid%nz ))
+
+            ! initialize
+            xb_avg( its:ite , jts:jte , 1:grid%nz ) = 0.0
+            xb_std( its:ite , jts:jte , 1:grid%nz ) = 0.0
+            xa_avg( its:ite , jts:jte , 1:grid%nz ) = 0.0
+
+            ! cal sum
+            do e_idx = 1, nens
+            do k_idx = 1, grid%nz
+            do j_idx = jts, jte
+            do i_idx = its, ite
+                            xb_avg(i_idx, j_idx, k_idx) = xb_avg(i_idx, j_idx, k_idx) + buf4d_assimilated_xb(i_idx, j_idx, k_idx, e_idx)
+                            xa_avg(i_idx, j_idx, k_idx) = xa_avg(i_idx, j_idx, k_idx) + buf4d_assimilated   (i_idx, j_idx, k_idx, e_idx)
+            enddo
+            enddo
+            enddo
+            enddo
+
+            ! cal ave
+            xb_avg = xb_avg / real(nens, kind=4)
+            xa_avg = xa_avg / real(nens, kind=4)
+
+            ! cal std for xb
+            do e_idx = 1, nens
+            do k_idx = 1, grid%nz
+            do j_idx = jts, jte
+            do i_idx = its, ite
+                d = buf4d_assimilated_xb(i_idx, j_idx, k_idx, e_idx) - xb_avg(i_idx, j_idx, k_idx)
+                xb_std(i_idx, j_idx, k_idx) = xb_std(i_idx, j_idx, k_idx) + d*d
+            enddo
+            enddo
+            enddo
+            enddo
+            xb_std = sqrt( xb_std / real(nens-1, kind=4) )
+
+            ! store 3 std
+            xb_std = xb_std * 3.0
+
+            ! do rtpp and non_negative physical constrain
+            do e_idx = 1, nens
+            do k_idx = 1, grid%nz
+            do j_idx = jts, jte
+            do i_idx = its, ite
+
+                ! apply rtpp
+                buf4d_assimilated(i_idx, j_idx, k_idx, e_idx) = RTPP( buf4d_assimilated(i_idx, j_idx, k_idx, e_idx),    &
+                                                                      xa_avg(i_idx, j_idx, k_idx),                      &
+                                                                      buf4d_assimilated_xb(i_idx, j_idx, k_idx, e_idx), &
+                                                                      xb_avg(i_idx, j_idx, k_idx),                      &
+                                                                      inflation_rtpp                                    &
+                                                                                                                         )
+                ! apply 3std constrain                                                                                                        
+                d = buf4d_assimilated(i_idx, j_idx, k_idx, e_idx) - xb_avg(i_idx, j_idx, k_idx)
+                if (abs(d) > xb_std(i_idx, j_idx, k_idx)) buf4d_assimilated(i_idx, j_idx, k_idx, e_idx) = xb_avg(i_idx, j_idx, k_idx) + sign(xb_std(i_idx, j_idx, k_idx), d)
+
+                ! apply non_negative physical constrain
+                if (non_negative_assimilated(k_idx) .and. buf4d_assimilated(i_idx, j_idx, k_idx, e_idx) < 0.0) buf4d_assimilated(i_idx, j_idx, k_idx, e_idx) = 0.0
+
+            enddo
+            enddo
+            enddo
+            enddo
+
+            deallocate(xb_avg)
+            deallocate(xb_std)
+            deallocate(xa_avg)
+
+        endblock post_xa
+! +++
+
         do ens = 1, nens
 
             l = 0
@@ -514,15 +621,6 @@ contains
                 if ( .not. assimilated(k) ) cycle
                 l = l + 1
                 buf4d(:,:,k,ens) = buf4d_assimilated(:,:,l,ens)
-
-! +++ non_negative physical constrain, 0804/2025
-                if ( non_negative(k) ) then
-                    where ( buf4d(:,:,k,ens) < 0.0 )
-                        buf4d(:,:,k,ens) = 0.0
-                    endwhere
-                endif
-! +++
-
             end do
 
             call MPI_ALLTOALLV(buf4d(:,:,:,ens),send_count_2,send_displ_2,MPI_REAL,buf_recv,recv_count_2,recv_displ_2,MPI_REAL,nscomm,ierr )
@@ -581,6 +679,9 @@ contains
 
         deallocate(buf4d)
         deallocate(buf4d_assimilated)
+        deallocate(buf4d_assimilated_xb)
+        
+        deallocate(non_negative_assimilated)
 
         deallocate(level_start)
         deallocate(level_end)
@@ -596,8 +697,19 @@ contains
         deallocate(grid%lat)
 
         deallocate(assimilated)
-        deallocate(non_negative)
 
     end subroutine EnKF_IO_Write
+
+    function RTPP(xa, xam, xb, xbm, infl_rtpp) result(xa_infl)
+      real(kind=4), intent(in)    :: xa
+      real(kind=4), intent(in)    :: xam
+      real(kind=4), intent(in)    :: xb
+      real(kind=4), intent(in)    :: xbm
+      real(kind=4), intent(in)    :: infl_rtpp
+
+      real :: xa_infl
+
+      xa_infl = xam + (1.0-infl_rtpp) * (xa - xam) + infl_rtpp * (xb - xbm)
+   end function RTPP
     
 end module EnKF_IO
